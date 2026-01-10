@@ -6,7 +6,6 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
-RUN npm run export
 
 FROM nginx:alpine
 COPY --from=build /app/out /usr/share/nginx/html
