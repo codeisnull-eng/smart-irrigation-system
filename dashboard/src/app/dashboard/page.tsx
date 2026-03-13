@@ -5,12 +5,11 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 
 export default function Dashboard() {
   const [moisture, setMoisture] = useState(50);
-  const [ph, setPh] = useState(6.5);
+  const [temperature, setTemperature] = useState(25);
   const [logs, setLogs] = useState<string[]>([]);
   const [isAutoIrrigating, setIsAutoIrrigating] = useState(false);
-  const [isAutoAdjustingPh, setIsAutoAdjustingPh] = useState(false);
   const [moistureHistory, setMoistureHistory] = useState<number[]>([]);
-  const [phHistory, setPhHistory] = useState<number[]>([]);
+  const [temperatureHistory, setTemperatureHistory] = useState<number[]>([]);
 
   const addLog = (message: string) => {
     setLogs(prev => [new Date().toLocaleTimeString() + ': ' + message, ...prev.slice(0, 9)]);
@@ -41,50 +40,23 @@ export default function Dashboard() {
       setMoisture(newMoisture);
       setMoistureHistory(prev => [...prev.slice(-99), newMoisture]);
 
-      // pH simulation
-      let newPh = ph;
-      const phDirection = Math.random() > 0.5 ? -1 : 1;
-      const phChange = (Math.random() * 0.2) * phDirection;
-      newPh += phChange;
-      newPh = Math.max(0, Math.min(14, newPh));
+      // Temperature simulation
+      let newTemperature = temperature;
+      const tempDirection = Math.random() > 0.5 ? -1 : 1;
+      const tempChange = (Math.random() * 1) * tempDirection;
+      newTemperature += tempChange;
+      newTemperature = Math.max(10, Math.min(40, newTemperature));
 
-      if ((newPh < 4.5 || newPh > 8) && !isAutoAdjustingPh) {
-        setIsAutoAdjustingPh(true);
-        addLog(`Auto pH adjustment started: pH ${newPh.toFixed(1)} out of range`);
-      }
-
-      if (isAutoAdjustingPh) {
-        if (newPh < 4.5) {
-          newPh += 0.3; // Add base
-        } else if (newPh > 8) {
-          newPh -= 0.3; // Add acid
-        }
-        if (newPh >= 4.5 && newPh <= 8) {
-          setIsAutoAdjustingPh(false);
-          addLog('Auto pH adjustment stopped: pH in range');
-        }
-      }
-
-      setPh(newPh);
-      setPhHistory(prev => [...prev.slice(-99), newPh]);
+      setTemperature(newTemperature);
+      setTemperatureHistory(prev => [...prev.slice(-99), newTemperature]);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [moisture, ph, isAutoIrrigating, isAutoAdjustingPh]);
+  }, [moisture, temperature, isAutoIrrigating]);
 
   const manualIrrigate = () => {
     setMoisture(prev => Math.min(100, prev + 10));
     addLog('Manual irrigation: +10% moisture');
-  };
-
-  const manualAdjustPhUp = () => {
-    setPh(prev => Math.min(14, prev + 0.5));
-    addLog('Manual pH adjustment: +0.5 (added base)');
-  };
-
-  const manualAdjustPhDown = () => {
-    setPh(prev => Math.max(0, prev - 0.5));
-    addLog('Manual pH adjustment: -0.5 (added acid)');
   };
 
   const getMoistureColor = () => {
@@ -93,15 +65,15 @@ export default function Dashboard() {
     return 'bg-green-500';
   };
 
-  const getPhColor = () => {
-    if (ph < 4.5 || ph > 8) return 'bg-red-500';
+  const getTemperatureColor = () => {
+    if (temperature < 15 || temperature > 30) return 'bg-red-500';
     return 'bg-green-500';
   };
 
   const chartData = moistureHistory.map((m, i) => ({
     time: i,
     moisture: m,
-    ph: phHistory[i] || 0,
+    temperature: temperatureHistory[i] || 25,
   }));
 
   const moistureStats = moistureHistory.length > 0 ? {
@@ -110,10 +82,10 @@ export default function Dashboard() {
     max: Math.max(...moistureHistory),
   } : { avg: 0, min: 0, max: 0 };
 
-  const phStats = phHistory.length > 0 ? {
-    avg: phHistory.reduce((a, b) => a + b, 0) / phHistory.length,
-    min: Math.min(...phHistory),
-    max: Math.max(...phHistory),
+  const temperatureStats = temperatureHistory.length > 0 ? {
+    avg: temperatureHistory.reduce((a, b) => a + b, 0) / temperatureHistory.length,
+    min: Math.min(...temperatureHistory),
+    max: Math.max(...temperatureHistory),
   } : { avg: 0, min: 0, max: 0 };
 
   return (
@@ -163,41 +135,26 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* pH Section */}
+          {/* Temperature Section */}
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-black">pH Level</h2>
+            <h2 className="text-xl font-semibold mb-4 text-black">Soil Temperature</h2>
             <div className="mb-4">
               <div className="flex justify-between text-sm text-gray-800 mb-1">
-                <span>0</span>
-                <span>{ph.toFixed(1)}</span>
-                <span>14</span>
+                <span>10°C</span>
+                <span>{temperature.toFixed(1)}°C</span>
+                <span>40°C</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-4">
                 <div 
-                  className={`h-4 rounded-full transition-all duration-500 ${getPhColor()}`}
-                  style={{ width: `${(ph / 14) * 100}%` }}
+                  className={`h-4 rounded-full transition-all duration-500 ${getTemperatureColor()}`}
+                  style={{ width: `${((temperature - 10) / 30) * 100}%` }}
                 ></div>
               </div>
               <div className="flex justify-between text-xs text-gray-700 mt-1">
-                <span>Critical &lt;4.5</span>
-                <span>Ideal 4.5-8</span>
-                <span>Critical &gt;8</span>
+                <span>Cold &lt;15°C</span>
+                <span>Ideal 15-30°C</span>
+                <span>Hot &gt;30°C</span>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={manualAdjustPhDown}
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
-              >
-                Add Acid
-              </button>
-              <button 
-                onClick={manualAdjustPhUp}
-                className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
-              >
-                Add Base
-              </button>
-              {isAutoAdjustingPh && <span className="text-green-600 font-semibold">Auto Adjusting</span>}
             </div>
           </div>
         </div>
@@ -223,18 +180,18 @@ export default function Dashboard() {
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-4 text-black">pH Analytics</h2>
+            <h2 className="text-xl font-semibold mb-4 text-black">Temperature Analytics</h2>
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-blue-600">{phStats.avg.toFixed(1)}</p>
+                <p className="text-2xl font-bold text-blue-600">{temperatureStats.avg.toFixed(1)}°C</p>
                 <p className="text-sm text-gray-700">Average</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-green-600">{phStats.min.toFixed(1)}</p>
+                <p className="text-2xl font-bold text-green-600">{temperatureStats.min.toFixed(1)}°C</p>
                 <p className="text-sm text-gray-700">Min</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-red-600">{phStats.max.toFixed(1)}</p>
+                <p className="text-2xl font-bold text-red-600">{temperatureStats.max.toFixed(1)}°C</p>
                 <p className="text-sm text-gray-700">Max</p>
               </div>
             </div>
@@ -253,7 +210,7 @@ export default function Dashboard() {
               <Tooltip />
               <Legend />
               <Line yAxisId="left" type="monotone" dataKey="moisture" stroke="#8884d8" name="Moisture (%)" />
-              <Line yAxisId="right" type="monotone" dataKey="ph" stroke="#82ca9d" name="pH" />
+              <Line yAxisId="right" type="monotone" dataKey="temperature" stroke="#82ca9d" name="Temperature (°C)" />
             </LineChart>
           </ResponsiveContainer>
         </div>

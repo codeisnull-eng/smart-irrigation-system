@@ -5,10 +5,9 @@ A simulation of a smart irrigation automation system for crops, built with Next.
 ## Features
 
 - **Moisture Level Monitoring**: Tracks soil moisture from 0-100%, with ideal range of 25-70%.
-- **pH Level Monitoring**: Monitors soil pH from 0-14, with ideal range of 4.5-8.
+- **Soil Temperature Monitoring**: Monitors soil temperature from 10-40°C, with ideal range of 15-30°C.
 - **Automatic Irrigation**: Automatically irrigates when moisture drops below 25% until it reaches 70%.
-- **Automatic pH Adjustment**: Automatically adjusts pH when it goes out of the ideal range.
-- **Manual Controls**: Buttons for manual irrigation and pH adjustments.
+- **Manual Controls**: Buttons for manual irrigation.
 - **Real-time Simulation**: Values update every second with random fluctuations.
 - **Activity Logs**: Displays recent system actions and adjustments.
 
@@ -19,10 +18,9 @@ A simulation of a smart irrigation automation system for crops, built with Next.
 - If moisture < 25%, automatic irrigation starts (+5% per second) until >= 70%.
 - Manual irrigation adds +10% moisture.
 
-### pH
-- Random fluctuations in either direction.
-- If pH < 4.5 or > 8, automatic adjustment starts (±0.3 per second) until in range.
-- Manual adjustments: Add acid (-0.5 pH) or add base (+0.5 pH).
+### Temperature
+- Random fluctuations in either direction between 10-40°C.
+- No automatic adjustment - just monitoring.
 
 ## Getting Started
 

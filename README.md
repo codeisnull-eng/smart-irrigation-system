@@ -6,7 +6,7 @@ The project uses a Web API to connect the ESP32 with the web dashboard. Sensor d
 ### Hardware Tools
 - **ESP32 Development Board**: Microcontroller for IoT functionality (e.g., ESP32 DevKit V1 or similar).
 - **Soil Moisture Sensor**: Analog sensor to measure soil moisture levels (e.g., capacitive soil moisture sensor).
-- **pH Sensor Module**: Sensor to measure soil pH levels (e.g., pH sensor with analog output).
+- **Soil Temperature Sensor**: Sensor to measure soil temperature (e.g., DS18B20 or similar digital temperature sensor).
 - **Jumper Wires**: For connecting sensors to ESP32 GPIO pins.
 - **Power Supply**: USB cable or battery pack to power the ESP32 (5V recommended).
 - **Breadboard** (optional): For prototyping sensor connections.
