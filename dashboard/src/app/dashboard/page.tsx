@@ -3,78 +3,108 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
+interface SensorData {
+  moisture: number;
+  temperature: number;
+  humidity: number;
+  timestamp: string;
+}
+
+interface PlantSettings {
+  plantName: string;
+  minMoisture: number;
+  maxMoisture: number;
+  minTemperature: number;
+  maxTemperature: number;
+}
+
 export default function Dashboard() {
-  const [moisture, setMoisture] = useState(50);
-  const [temperature, setTemperature] = useState(25);
+  const [sensorData, setSensorData] = useState<SensorData | null>(null);
+  const [plantSettings, setPlantSettings] = useState<PlantSettings | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [isAutoIrrigating, setIsAutoIrrigating] = useState(false);
-  const [moistureHistory, setMoistureHistory] = useState<number[]>([]);
-  const [temperatureHistory, setTemperatureHistory] = useState<number[]>([]);
+  const [history, setHistory] = useState<SensorData[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const addLog = (message: string) => {
     setLogs(prev => [new Date().toLocaleTimeString() + ': ' + message, ...prev.slice(0, 9)]);
   };
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Moisture simulation
-      let newMoisture = moisture;
-      const direction = Math.random() > 0.1 ? -1 : 1; // 90% chance to decrease
-      const change = (Math.random() * 2) * direction;
-      newMoisture += change;
-      newMoisture = Math.max(0, Math.min(100, newMoisture));
-
-      if (newMoisture < 25 && !isAutoIrrigating) {
-        setIsAutoIrrigating(true);
-        addLog('Auto irrigation started: Moisture below 25%');
+  const fetchData = async () => {
+    try {
+      const res = await fetch('/api/sensors');
+      const data = await res.json();
+      if (data && data.moisture !== undefined) {
+        setSensorData(data);
+        setHistory(prev => [...prev.slice(-99), data]);
       }
-
-      if (isAutoIrrigating) {
-        newMoisture += 5; // Irrigate
-        if (newMoisture >= 70) {
-          setIsAutoIrrigating(false);
-          addLog('Auto irrigation stopped: Moisture at 70%');
-        }
-      }
-
-      setMoisture(newMoisture);
-      setMoistureHistory(prev => [...prev.slice(-99), newMoisture]);
-
-      // Temperature simulation
-      let newTemperature = temperature;
-      const tempDirection = Math.random() > 0.5 ? -1 : 1;
-      const tempChange = (Math.random() * 1) * tempDirection;
-      newTemperature += tempChange;
-      newTemperature = Math.max(10, Math.min(40, newTemperature));
-
-      setTemperature(newTemperature);
-      setTemperatureHistory(prev => [...prev.slice(-99), newTemperature]);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [moisture, temperature, isAutoIrrigating]);
-
-  const manualIrrigate = () => {
-    setMoisture(prev => Math.min(100, prev + 10));
-    addLog('Manual irrigation: +10% moisture');
+      setLoading(false);
+    } catch (error) {
+      addLog('Error fetching sensor data');
+      setLoading(false);
+    }
   };
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data && data.plantName) setPlantSettings(data);
+    } catch (error) {
+      console.error('Error fetching settings');
+    }
+  };
+
+  const manualIrrigate = async () => {
+    try {
+      await fetch('/api/controls/irrigate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start' }),
+      });
+      addLog('Manual irrigation command sent');
+    } catch (error) {
+      addLog('Error sending irrigation command');
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    fetchSettings();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const moisture = sensorData?.moisture ?? 0;
+  const temperature = sensorData?.temperature ?? 0;
+  const humidity = sensorData?.humidity ?? 0;
+
+  const minMoisture = plantSettings?.minMoisture ?? 25;
+  const maxMoisture = plantSettings?.maxMoisture ?? 70;
+  const minTemperature = plantSettings?.minTemperature ?? 15;
+  const maxTemperature = plantSettings?.maxTemperature ?? 30;
+
   const getMoistureColor = () => {
-    if (moisture < 25) return 'bg-red-500';
-    if (moisture > 70) return 'bg-yellow-500';
+    if (moisture < minMoisture) return 'bg-red-500';
+    if (moisture > maxMoisture) return 'bg-yellow-500';
     return 'bg-green-500';
   };
 
   const getTemperatureColor = () => {
-    if (temperature < 15 || temperature > 30) return 'bg-red-500';
+    if (temperature < minTemperature || temperature > maxTemperature) return 'bg-red-500';
     return 'bg-green-500';
   };
 
-  const chartData = moistureHistory.map((m, i) => ({
+  const moistureAlert = sensorData && moisture < minMoisture;
+  const temperatureAlert = sensorData && (temperature < minTemperature || temperature > maxTemperature);
+
+  const chartData = history.map((d, i) => ({
     time: i,
-    moisture: m,
-    temperature: temperatureHistory[i] || 25,
+    moisture: d.moisture,
+    temperature: d.temperature,
   }));
+
+  const moistureHistory = history.map(d => d.moisture);
+  const temperatureHistory = history.map(d => d.temperature);
 
   const moistureStats = moistureHistory.length > 0 ? {
     avg: moistureHistory.reduce((a, b) => a + b, 0) / moistureHistory.length,
@@ -88,21 +118,65 @@ export default function Dashboard() {
     max: Math.max(...temperatureHistory),
   } : { avg: 0, min: 0, max: 0 };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <p className="text-xl text-gray-600">Loading sensor data...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-black">Smart Irrigation System Dashboard</h1>
-          <button 
-            onClick={() => window.location.href = '/'}
-            className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded"
-          >
-            Logout
-          </button>
+          <div>
+            <h1 className="text-3xl font-bold text-black">Smart Irrigation System Dashboard</h1>
+            {plantSettings && (
+              <p className="text-gray-600 mt-1">🌱 Plant: <span className="font-semibold text-green-600">{plantSettings.plantName}</span></p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.location.href = '/settings'}
+              className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
+            >
+              Settings ⚙️
+            </button>
+            <button
+              onClick={() => window.location.href = '/chat'}
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+            >
+              Plant Assistant 🌱
+            </button>
+            <button 
+              onClick={() => window.location.href = '/'}
+              className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded"
+            >
+              Logout
+            </button>
+          </div>
         </div>
+
+        {!sensorData && (
+          <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded mb-6">
+            No sensor data yet. Waiting for ESP32 to send data...
+          </div>
+        )}
+
+        {moistureAlert && (
+          <div className="bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded mb-4">
+            🚨 Moisture too low! Current: {moisture.toFixed(1)}% — Minimum for {plantSettings?.plantName}: {minMoisture}%
+          </div>
+        )}
+
+        {temperatureAlert && (
+          <div className="bg-orange-100 border border-orange-400 text-orange-800 px-4 py-3 rounded mb-4">
+            🌡️ Temperature out of range! Current: {temperature.toFixed(1)}°C — Ideal for {plantSettings?.plantName}: {minTemperature}-{maxTemperature}°C
+          </div>
+        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-          {/* Moisture Section */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4 text-black">Moisture Level</h2>
             <div className="mb-4">
@@ -118,24 +192,19 @@ export default function Dashboard() {
                 ></div>
               </div>
               <div className="flex justify-between text-xs text-gray-700 mt-1">
-                <span>Critical &lt;25%</span>
-                <span>Ideal 25-70%</span>
-                <span>High &gt;70%</span>
+                <span>Critical &lt;{minMoisture}%</span>
+                <span>Ideal {minMoisture}-{maxMoisture}%</span>
+                <span>High &gt;{maxMoisture}%</span>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={manualIrrigate}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-                disabled={moisture >= 100}
-              >
-                Manual Irrigate
-              </button>
-              {isAutoIrrigating && <span className="text-green-600 font-semibold">Auto Irrigating</span>}
-            </div>
+            <button 
+              onClick={manualIrrigate}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+            >
+              Manual Irrigate
+            </button>
           </div>
 
-          {/* Temperature Section */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4 text-black">Soil Temperature</h2>
             <div className="mb-4">
@@ -151,15 +220,15 @@ export default function Dashboard() {
                 ></div>
               </div>
               <div className="flex justify-between text-xs text-gray-700 mt-1">
-                <span>Cold &lt;15°C</span>
-                <span>Ideal 15-30°C</span>
-                <span>Hot &gt;30°C</span>
+                <span>Cold &lt;{minTemperature}°C</span>
+                <span>Ideal {minTemperature}-{maxTemperature}°C</span>
+                <span>Hot &gt;{maxTemperature}°C</span>
               </div>
             </div>
+            <p className="text-sm text-gray-600">Humidity: {humidity.toFixed(1)}%</p>
           </div>
         </div>
 
-        {/* Analytics Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-4 text-black">Moisture Analytics</h2>
@@ -198,7 +267,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Charts Section */}
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
           <h2 className="text-xl font-semibold mb-4 text-black">Historical Trends</h2>
           <ResponsiveContainer width="100%" height={300}>
@@ -215,7 +283,6 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Logs Section */}
         <div className="bg-white p-6 rounded-lg shadow-md">
           <h2 className="text-xl font-semibold mb-4 text-black">System Logs</h2>
           <div className="max-h-64 overflow-y-auto">
