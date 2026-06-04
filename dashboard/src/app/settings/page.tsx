@@ -6,7 +6,9 @@ export default function SettingsPage() {
   const [plantName, setPlantName] = useState('');
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [aiMessage, setAiMessage] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
@@ -16,17 +18,18 @@ export default function SettingsPage() {
       });
   }, []);
 
-  const askAI = async () => {
+  const handleGetSettings = async () => {
     if (!plantName.trim()) return;
+    
     setLoading(true);
+    setError('');
+    setAiMessage('🤖 AI is calculating optimal settings...');
 
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: `Give me the ideal irrigation settings for ${plantName}. 
-        Respond ONLY in this JSON format with no extra text:
-        {"minMoisture": 40, "maxMoisture": 70, "minTemperature": 18, "maxTemperature": 25}`
+        message: `Give me the ideal irrigation settings for ${plantName}. Respond ONLY with JSON: {"minMoisture": 40, "maxMoisture": 70, "minTemperature": 18, "maxTemperature": 25}`
       }),
     });
 
@@ -36,22 +39,35 @@ export default function SettingsPage() {
       const clean = data.reply.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
       
+      setAiMessage(`✅ AI says ${plantName} needs: ${parsed.minMoisture}-${parsed.maxMoisture}% moisture, ${parsed.minTemperature}-${parsed.maxTemperature}°C`);
+
       const settingsData = {
         plantName,
-        ...parsed,
+        minMoisture: parsed.minMoisture,
+        maxMoisture: parsed.maxMoisture,
+        minTemperature: parsed.minTemperature,
+        maxTemperature: parsed.maxTemperature,
       };
 
-      await fetch('/api/settings', {
+      const saveRes = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsData),
       });
 
-      setSettings(settingsData);
+      const saveData = await saveRes.json();
+      
+      if (!saveRes.ok) {
+        setError(saveData.error);
+        setLoading(false);
+        return;
+      }
+
+      setSettings(saveData.data);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
-      alert('Could not parse AI response. Try again.');
+      setError('❌ Could not parse AI response. Try again.');
     }
 
     setLoading(false);
@@ -72,25 +88,37 @@ export default function SettingsPage() {
 
         <div className="bg-white p-6 rounded-lg shadow-md mb-6">
           <h2 className="text-xl font-semibold mb-4 text-black">Set Your Plant</h2>
-          <p className="text-gray-600 mb-4">Enter your plant name and AI will set the ideal moisture and temperature ranges automatically.</p>
+          <p className="text-gray-600 mb-4">Enter your plant name and AI will calculate the ideal settings.</p>
           
           <div className="flex gap-2">
             <input
               type="text"
               value={plantName}
               onChange={(e) => setPlantName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && askAI()}
-              placeholder="e.g. Tomato, Rose, Mint..."
+              onKeyDown={(e) => e.key === 'Enter' && handleGetSettings()}
+              placeholder="e.g. Tomato, Rose, Mint, Cactus..."
               className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-black focus:outline-none focus:border-green-500"
             />
             <button
-              onClick={askAI}
-              disabled={loading}
+              onClick={handleGetSettings}
+              disabled={loading || !plantName}
               className="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg disabled:opacity-50"
             >
-              {loading ? 'Loading...' : 'Set with AI 🤖'}
+              {loading ? 'Asking AI...' : 'Ask AI 🤖'}
             </button>
           </div>
+
+          {aiMessage && (
+            <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mt-4">
+              {aiMessage}
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded mt-4">
+              {error}
+            </div>
+          )}
         </div>
 
         {settings && (
