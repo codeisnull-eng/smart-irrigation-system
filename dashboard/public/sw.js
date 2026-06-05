@@ -1,19 +1,70 @@
+const CACHE_NAME = 'verdirra-v1';
+const STATIC_ASSETS = [
+  '/',
+  '/dashboard',
+  '/settings',
+];
+
+// عند التثبيت - نحفظ الصفحات الأساسية
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
+    })
+  );
   self.skipWaiting();
 });
 
+// عند التفعيل - نمسح الـ cache القديم
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+      );
+    }).then(() => clients.claim())
+  );
 });
 
+// استراتيجية: Network First, fallback to Cache
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  
+
+  const url = new URL(event.request.url);
+
+  // API calls - نحفظ آخر نتيجة
+  if (url.pathname.startsWith('/api/sensors') || url.pathname.startsWith('/api/settings')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request).then(cached => 
+            cached || new Response(JSON.stringify({ error: 'Offline', moisture: 0, temperature: 0, humidity: 0 }), 
+              { headers: { 'Content-Type': 'application/json' } })
+          );
+        })
+    );
+    return;
+  }
+
+  // باقي الطلبات - Network First
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    }).catch(() => {
-      return new Response('Offline');
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then(cached =>
+          cached || new Response('Offline - Please check your connection', { status: 503 })
+        );
+      })
   );
 });
