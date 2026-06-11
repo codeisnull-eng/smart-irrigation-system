@@ -27,6 +27,13 @@ export async function POST(req: NextRequest) {
 
     const settings = getPlantSettings(plantName);
 
+    if (!settings) {
+      return NextResponse.json(
+        { error: `Settings for plant "${plantName}" not found.` },
+        { status: 500 }
+      );
+    }
+
     let dbSettings = await PlantSettings.findOne();
     
     if (dbSettings) {

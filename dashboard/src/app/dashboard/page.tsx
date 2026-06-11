@@ -37,11 +37,12 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<string[]>([]);
   const [history, setHistory] = useState<SensorData[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ai_agent' | 'profile'>('dashboard');
   const [language, setLanguage] = useState<'en' | 'ar'>('en');
   const [darkMode, setDarkMode] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
+  const [showOnlineBanner, setShowOnlineBanner] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('verdirra-theme');
@@ -54,8 +55,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowOnlineBanner(true);
+      setTimeout(() => setShowOnlineBanner(false), 3000);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setShowOnlineBanner(false);
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
@@ -63,11 +71,30 @@ export default function Dashboard() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
-
+useEffect(() => {
+  fetch('/api/auth/me')
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.user) {
+        setUser(data.user);
+      }
+    })
+    .catch(() => {});
+}, []);
   const [showQuickWaterModal, setShowQuickWaterModal] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showWeeklyReport, setShowWeeklyReport] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // AI Report States
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportStep, setReportStep] = useState<'plant' | 'soil' | 'generating' | 'done'>('plant');
+  const [plantImage, setPlantImage] = useState<string | null>(null);
+  const [soilImage, setSoilImage] = useState<string | null>(null);
+  const [reportText, setReportText] = useState('');
+  const [reportCopied, setReportCopied] = useState(false);
+  const plantImageRef = useRef<HTMLInputElement>(null);
+  const soilImageRef = useRef<HTMLInputElement>(null);
 
   const [isIrrigating, setIsIrrigating] = useState(false);
   const [irrigationDuration, setIrrigationDuration] = useState(0);
@@ -142,6 +169,136 @@ export default function Dashboard() {
     });
   })();
 
+  // AI Report Logic
+  const handlePlantImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+  const base64 = (reader.result as string).split(',')[1];
+  let imageUrl = reader.result as string;
+  try {
+    const uploadRes = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 }),
+    });
+    const uploadData = await uploadRes.json();
+    if (uploadData.url) imageUrl = uploadData.url;
+  } catch { console.error('Upload failed'); }
+  setPlantImage(imageUrl);
+  setReportStep('soil');
+};
+    reader.readAsDataURL(file);
+  };
+
+  const handleSoilImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSoilImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const generateReport = async () => {
+    if (!plantImage) return;
+    setReportStep('generating');
+
+    const plantBase64 = plantImage.split(',')[1];
+    const soilBase64 = soilImage ? soilImage.split(',')[1] : null;
+
+    const sensorInfo = sensorData ? `
+Current sensor readings:
+- Soil Moisture: ${sensorData.moisture}% (optimal: ${plantSettings?.minMoisture}-${plantSettings?.maxMoisture}%)
+- Temperature: ${sensorData.temperature}°C (optimal: ${plantSettings?.minTemperature}-${plantSettings?.maxTemperature}°C)
+- Air Humidity: ${sensorData.humidity}%
+- Plant: ${plantSettings?.plantName || 'Unknown'}
+- Health Score: ${healthScore}/100
+` : 'No sensor data available.';
+
+    const prompt = `You are an expert plant pathologist and agronomist for Verdirra Smart Irrigation System.
+
+CRITICAL TASK: Carefully examine the plant image and identify ANY signs of disease, stress, or damage.
+
+Look specifically for:
+- Yellowing, browning, or discoloration of leaves
+- Spots, lesions, or unusual markings
+- Wilting, drooping, or abnormal growth
+- Pest damage, holes, or bite marks
+- Mold, fungus, or powdery substances
+- Root problems if visible
+
+Current sensor data:
+- Plant: ${plantSettings?.plantName || 'Unknown'}
+- Soil Moisture: ${sensorData?.moisture ?? 'N/A'}% (optimal: ${plantSettings?.minMoisture}-${plantSettings?.maxMoisture}%)
+- Temperature: ${sensorData?.temperature ?? 'N/A'}°C (optimal: ${plantSettings?.minTemperature}-${plantSettings?.maxTemperature}°C)
+- Air Humidity: ${sensorData?.humidity ?? 'N/A'}%
+- Health Score: ${healthScore}/100
+
+Generate a detailed report:
+1. 🔍 Visual Assessment (describe EXACTLY what you see - be specific about colors, textures, any abnormalities)
+2. 🌿 Plant Health Status (Healthy / Stressed / Diseased / Critical - explain why)
+3. ⚠️ Issues Detected (list every problem found, or "None detected" if healthy)
+4. 💧 Irrigation Status (based on sensor data)
+5. ✅ Treatment & Recommendations (specific actions needed)
+6. 📊 Overall Health Score (0-100 with justification)
+
+Be direct and specific. Do NOT give generic advice - base everything on what you actually see in the image.`;
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: prompt,
+          image: plantBase64,
+        }),
+      });
+      const data = await res.json();
+      setReportText(data.reply || 'Failed to generate report.');
+      setReportStep('done');
+    } catch {
+      setReportText('❌ Failed to generate report. Please check your connection.');
+      setReportStep('done');
+    }
+  };
+
+  const handleCopyReport = () => {
+    navigator.clipboard.writeText(reportText);
+    setReportCopied(true);
+    setTimeout(() => setReportCopied(false), 2000);
+  };
+
+  const handleDownloadReport = () => {
+    const date = new Date().toLocaleDateString();
+    const content = `VERDIRRA PLANT HEALTH REPORT
+Generated: ${date}
+Plant: ${plantSettings?.plantName || 'Unknown'}
+Health Score: ${healthScore}/100
+
+${reportText}
+
+---
+Generated by Verdirra Smart Irrigation System`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `verdirra-report-${date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetReport = () => {
+    setShowReportModal(false);
+    setReportStep('plant');
+    setPlantImage(null);
+    setSoilImage(null);
+    setReportText('');
+  };
+
   const handleCopyNumber = () => {
     navigator.clipboard.writeText('00962776718430');
     setCopied(true);
@@ -174,12 +331,18 @@ export default function Dashboard() {
   }, [chatMessages]);
 
   const saveMessage = async (role: string, text: string, image?: string) => {
-    await fetch('/api/chat-history', {
+  try {
+    const res = await fetch('/api/chat-history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role, text, image }),
     });
-  };
+    const data = await res.json();
+    console.log('Saved message:', data);
+  } catch (error) {
+    console.error('Failed to save message:', error);
+  }
+};
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -188,8 +351,21 @@ export default function Dashboard() {
     reader.onload = async () => {
       const imageDataUrl = reader.result as string;
       const base64Data = imageDataUrl.split(',')[1];
-      setChatMessages(prev => [...prev, { role: 'user', text: '📷 Analyze this plant photo', image: imageDataUrl }]);
-      await saveMessage('user', '📷 Analyze this plant photo', imageDataUrl);
+
+// رفع لـ Cloudinary
+let imageUrl = imageDataUrl;
+try {
+  const uploadRes = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: base64Data }),
+  });
+  const uploadData = await uploadRes.json();
+  if (uploadData.url) imageUrl = uploadData.url;
+} catch { console.error('Upload failed'); }
+
+setChatMessages(prev => [...prev, { role: 'user', text: '📷 Analyze this plant photo', image: imageUrl }]);
+await saveMessage('user', '📷 Analyze this plant photo', imageUrl);
       setIsAnalyzing(true);
       try {
         const res = await fetch('/api/chat', {
@@ -336,7 +512,6 @@ export default function Dashboard() {
   return (
     <div className={`min-h-screen ${theme.bg} w-full overflow-x-hidden ${theme.text} pb-12 transition-colors duration-300`} dir={t.dir}>
 
-      {/* Navbar */}
       <nav className={`${theme.nav} backdrop-blur-md border-b sticky top-0 z-50 shadow-xl w-full transition-colors duration-300`}>
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -353,10 +528,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowSupportModal(true)} className={`hidden md:block ${theme.textMuted} hover:text-emerald-400 text-xs transition`}>💬 {t.support}</button>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${darkMode ? 'bg-slate-800 text-yellow-400 hover:bg-slate-700' : 'bg-gray-100 text-slate-600 hover:bg-gray-200'}`}
-            >
+            <button onClick={() => setDarkMode(!darkMode)} className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${darkMode ? 'bg-slate-800 text-yellow-400 hover:bg-slate-700' : 'bg-gray-100 text-slate-600 hover:bg-gray-200'}`}>
               {darkMode ? '☀️' : '🌙'}
             </button>
             <button onClick={() => window.location.href = '/settings'} className={`w-9 h-9 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-gray-100 border-gray-200'} border rounded-xl flex items-center justify-center ${theme.textMuted} hover:text-emerald-400 shadow-lg transition`}>⚙️</button>
@@ -364,14 +536,20 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Offline Banner */}
       {!isOnline && (
         <div className="bg-orange-500/20 border-b border-orange-500/40 px-4 py-2 text-center">
-          <p className="text-orange-400 text-xs font-bold">
-            📡 You're offline — showing last saved data
-          </p>
+          <p className="text-orange-400 text-xs font-bold">📡 You're offline — showing last saved data</p>
         </div>
       )}
+      {showOnlineBanner && (
+        <div className="bg-emerald-500/20 border-b border-emerald-500/40 px-4 py-2 text-center">
+          <p className="text-emerald-400 text-xs font-bold">✅ Back online — data is live</p>
+        </div>
+      )}
+
+      {/* Hidden file inputs for report */}
+      <input ref={plantImageRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePlantImageCapture} />
+      <input ref={soilImageRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleSoilImageCapture} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 md:py-6 w-full box-border">
 
@@ -382,12 +560,20 @@ export default function Dashboard() {
                 <h1 className={`text-xl md:text-3xl font-bold mb-1 tracking-tight ${darkMode ? 'text-white' : 'text-gray-800'}`}>{t.welcome}</h1>
                 {plantSettings && <p className="text-xs md:text-sm text-emerald-500 flex items-center gap-1.5">🌱 {t.monitoring} <span className="font-semibold">{plantSettings.plantName}</span></p>}
               </div>
-              <button
-                onClick={() => setShowWeeklyReport(true)}
-                className="hidden sm:flex items-center gap-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-600/30 text-emerald-400 px-3 py-2 rounded-xl text-xs font-bold transition"
-              >
-                📊 Weekly Report
-              </button>
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  onClick={() => { setShowReportModal(true); setReportStep('plant'); setPlantImage(null); setSoilImage(null); setReportText(''); }}
+                  className="flex items-center gap-1.5 bg-purple-600/10 hover:bg-purple-600/20 border border-purple-600/30 text-purple-400 px-3 py-2 rounded-xl text-xs font-bold transition"
+                >
+                  📋 AI Report
+                </button>
+                <button
+                  onClick={() => setShowWeeklyReport(true)}
+                  className="flex items-center gap-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-600/30 text-emerald-400 px-3 py-2 rounded-xl text-xs font-bold transition"
+                >
+                  📊 Weekly Report
+                </button>
+              </div>
             </div>
 
             {healthScore !== null && (
@@ -463,7 +649,8 @@ export default function Dashboard() {
 
             <div className="flex flex-wrap gap-2 mb-6 pt-1">
               <button onClick={() => setShowQuickWaterModal(true)} className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-600 to-cyan-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg text-xs">{t.startManual}</button>
-              <button onClick={() => setShowWeeklyReport(true)} className="sm:hidden flex-1 bg-emerald-600/10 border border-emerald-600/30 text-emerald-400 px-4 py-3 rounded-xl font-bold text-xs">📊 Weekly Report</button>
+              <button onClick={() => setShowWeeklyReport(true)} className="sm:hidden flex-1 bg-emerald-600/10 border border-emerald-600/30 text-emerald-400 px-4 py-3 rounded-xl font-bold text-xs">📊 Weekly</button>
+              <button onClick={() => { setShowReportModal(true); setReportStep('plant'); setPlantImage(null); setSoilImage(null); setReportText(''); }} className="sm:hidden flex-1 bg-purple-600/10 border border-purple-600/30 text-purple-400 px-4 py-3 rounded-xl font-bold text-xs">📋 AI Report</button>
             </div>
 
             <div className={`${theme.card} border rounded-2xl p-4 md:p-6 shadow-2xl mb-5 w-full overflow-hidden`}>
@@ -543,8 +730,17 @@ export default function Dashboard() {
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-full flex items-center justify-center text-lg">👤</div>
                 <div>
-                  <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Administrator Account</h2>
-                  <p className={`text-[11px] ${theme.textSubtle}`}>verdirra@agriculture.com</p>
+                 <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+  {user?.name || 'Administrator'}</h2>
+<p className={`text-[11px] ${theme.textSubtle}`}>{user?.email || 'No email'}</p>                  <button
+  onClick={async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+}}
+  className="mt-3 w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 py-2 rounded-xl text-xs font-bold transition"
+>
+  🚪 Logout
+</button>
                 </div>
               </div>
               <div className={`${theme.sectionBg} border rounded-xl p-4`}>
@@ -590,6 +786,148 @@ export default function Dashboard() {
           <span className="text-base">👤</span><span>{t.profile}</span>
         </button>
       </div>
+
+      {/* AI Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className={`${theme.modalBg} border rounded-3xl p-5 max-w-md w-full shadow-2xl`} dir="ltr">
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>📋 AI Plant Report</h3>
+                <p className={`text-[10px] ${theme.textSubtle} mt-0.5`}>
+                  {reportStep === 'plant' && 'Step 1: Take a photo of your plant'}
+                  {reportStep === 'soil' && 'Step 2: Take a photo of the soil (optional)'}
+                  {reportStep === 'generating' && 'Generating your report...'}
+                  {reportStep === 'done' && 'Report ready!'}
+                </p>
+              </div>
+              <button onClick={resetReport} className={`${theme.textMuted} hover:text-red-400 text-lg`}>✕</button>
+            </div>
+
+            {/* Progress Steps */}
+            <div className="flex items-center gap-2 mb-5" dir="ltr">
+              {['Plant Photo', 'Soil Photo', 'Generate', 'Report'].map((step, i) => (
+                <div key={i} className="flex items-center gap-1 flex-1">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-black transition-all ${
+                    i === 0 && (reportStep === 'plant') ? 'bg-purple-500 text-white' :
+                    i === 1 && (reportStep === 'soil') ? 'bg-purple-500 text-white' :
+                    i === 2 && (reportStep === 'generating') ? 'bg-purple-500 text-white animate-pulse' :
+                    i === 3 && (reportStep === 'done') ? 'bg-emerald-500 text-white' :
+                    i < ['plant','soil','generating','done'].indexOf(reportStep) ? 'bg-emerald-500 text-white' :
+                    `${darkMode ? 'bg-slate-700 text-gray-500' : 'bg-gray-200 text-gray-400'}`
+                  }`}>{i + 1}</div>
+                  {i < 3 && <div className={`flex-1 h-0.5 ${darkMode ? 'bg-slate-700' : 'bg-gray-200'}`} />}
+                </div>
+              ))}
+            </div>
+
+            {/* Step: Plant Photo */}
+            {reportStep === 'plant' && (
+              <div className="text-center">
+                <div className={`${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} border rounded-2xl p-6 mb-4`}>
+                  {plantImage ? (
+                    <img src={plantImage} alt="plant" className="w-full max-h-48 object-cover rounded-xl mb-3" />
+                  ) : (
+                    <div className="text-4xl mb-3">🌿</div>
+                  )}
+                  <p className={`text-xs ${theme.textMuted} mb-3`}>
+                    {plantImage ? '✅ Plant photo captured!' : 'Take a clear photo of your plant'}
+                  </p>
+                  <button
+                    onClick={() => plantImageRef.current?.click()}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    📷 {plantImage ? 'Retake Photo' : 'Take Plant Photo'}
+                  </button>
+                </div>
+                {plantImage && (
+                  <button
+                    onClick={() => setReportStep('soil')}
+                    className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 text-white py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    Next: Soil Photo →
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Step: Soil Photo */}
+            {reportStep === 'soil' && (
+              <div className="text-center">
+                <div className={`${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} border rounded-2xl p-6 mb-4`}>
+                  {soilImage ? (
+                    <img src={soilImage} alt="soil" className="w-full max-h-48 object-cover rounded-xl mb-3" />
+                  ) : (
+                    <div className="text-4xl mb-3">🪨</div>
+                  )}
+                  <p className={`text-xs ${theme.textMuted} mb-3`}>
+                    {soilImage ? '✅ Soil photo captured!' : 'Take a photo of the soil around your plant'}
+                  </p>
+                  <button
+                    onClick={() => soilImageRef.current?.click()}
+                    className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    📷 {soilImage ? 'Retake Photo' : 'Take Soil Photo'}
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={generateReport}
+                    className={`flex-1 text-white py-2.5 rounded-xl text-xs font-bold ${soilImage ? 'bg-gradient-to-r from-purple-600 to-pink-600' : 'bg-gradient-to-r from-emerald-600 to-cyan-600'}`}
+                  >
+                    {soilImage ? '🔍 Generate Report' : '⚡ Skip & Generate'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step: Generating */}
+            {reportStep === 'generating' && (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-4 animate-pulse">🤖</div>
+                <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-800'} mb-2`}>AI is analyzing your plant...</p>
+                <p className={`text-xs ${theme.textMuted} mb-4`}>Checking health, soil, and sensor data</p>
+                <div className="flex justify-center gap-1">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></span>
+                  <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                </div>
+              </div>
+            )}
+
+            {/* Step: Done - Show Report */}
+            {reportStep === 'done' && (
+              <div>
+                <div className={`${darkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-gray-50 border-gray-200'} border rounded-2xl p-4 mb-4 max-h-64 overflow-y-auto`}>
+                  <p className={`text-xs leading-relaxed whitespace-pre-wrap ${darkMode ? 'text-slate-200' : 'text-gray-700'}`}>{reportText}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyReport}
+                    className={`flex-1 ${darkMode ? 'bg-slate-800 text-gray-300' : 'bg-gray-100 text-gray-600'} py-2.5 rounded-xl text-xs font-bold`}
+                  >
+                    {reportCopied ? '✓ Copied!' : '📋 Copy'}
+                  </button>
+                  <button
+                    onClick={handleDownloadReport}
+                    className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    ⬇️ Download
+                  </button>
+                  <button
+                    onClick={resetReport}
+                    className="flex-1 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white py-2.5 rounded-xl text-xs font-bold"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Weekly Report Modal */}
       {showWeeklyReport && (
