@@ -12,10 +12,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
-
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
+
     const { plantName } = await req.json();
 
     if (!isValidPlant(plantName)) {
@@ -35,22 +35,32 @@ export async function POST(req: NextRequest) {
     }
 
     let dbSettings = await PlantSettings.findOne();
-    
+
+    const settingsData = {
+      plantName: settings.englishName,
+      englishName: settings.englishName,
+      arabicName: settings.arabicName,
+      scientificName: settings.scientificName,
+
+      minMoisture: settings.minMoisture,
+      maxMoisture: settings.maxMoisture,
+
+      minTemperature: settings.minTemperature,
+      maxTemperature: settings.maxTemperature,
+
+      minHumidity: settings.minHumidity,
+      maxHumidity: settings.maxHumidity,
+
+      lightRequirement: settings.lightRequirement,
+
+      updatedAt: new Date(),
+    };
+
     if (dbSettings) {
-      dbSettings.plantName = plantName;
-      dbSettings.minMoisture = settings.minMoisture;
-      dbSettings.maxMoisture = settings.maxMoisture;
-      dbSettings.minTemperature = settings.minTemperature;
-      dbSettings.maxTemperature = settings.maxTemperature;
+      Object.assign(dbSettings, settingsData);
       await dbSettings.save();
     } else {
-      dbSettings = new PlantSettings({
-        plantName,
-        minMoisture: settings.minMoisture,
-        maxMoisture: settings.maxMoisture,
-        minTemperature: settings.minTemperature,
-        maxTemperature: settings.maxTemperature,
-      });
+      dbSettings = new PlantSettings(settingsData);
       await dbSettings.save();
     }
 

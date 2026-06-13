@@ -41,39 +41,40 @@ export default function SettingsPage() {
   }, []);
 
   const handleGetSettings = async () => {
-    if (!plantName.trim()) return;
-    setLoading(true);
-    setError('');
-    setAiMessage('🤖 AI is calculating optimal settings...');
+  if (!plantName.trim()) return;
 
-    const res = await fetch('/api/chat', {
+  setLoading(true);
+  setError('');
+  setAiMessage('🔍 Searching plant database...');
+
+  try {
+    const saveRes = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `Give me the ideal irrigation settings for ${plantName}. Respond ONLY with JSON: {"minMoisture": 40, "maxMoisture": 70, "minTemperature": 18, "maxTemperature": 25}`
-      }),
+      body: JSON.stringify({ plantName }),
     });
 
-    const data = await res.json();
+    const saveData = await saveRes.json();
 
-    try {
-      const clean = data.reply.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(clean);
-      setAiMessage(`✅ AI says ${plantName} needs: ${parsed.minMoisture}-${parsed.maxMoisture}% moisture, ${parsed.minTemperature}-${parsed.maxTemperature}°C`);
-
-      const settingsData = { plantName, minMoisture: parsed.minMoisture, maxMoisture: parsed.maxMoisture, minTemperature: parsed.minTemperature, maxTemperature: parsed.maxTemperature };
-      const saveRes = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settingsData) });
-      const saveData = await saveRes.json();
-
-      if (!saveRes.ok) { setError(saveData.error); setLoading(false); return; }
-      setSettings(saveData.data);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError('❌ Could not parse AI response. Try again.');
+    if (!saveRes.ok) {
+      setError(saveData.error || 'Plant not found.');
+      setLoading(false);
+      return;
     }
-    setLoading(false);
-  };
+
+    setSettings(saveData.data);
+    setAiMessage(
+      `✅ ${saveData.data.englishName || saveData.data.plantName} saved: ${saveData.data.minMoisture}-${saveData.data.maxMoisture}% moisture, ${saveData.data.minTemperature}-${saveData.data.maxTemperature}°C`
+    );
+
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  } catch {
+    setError('❌ Could not save settings.');
+  }
+
+  setLoading(false);
+};
 
   const theme = {
     bg: darkMode ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950' : 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
@@ -140,7 +141,7 @@ export default function SettingsPage() {
               value={plantName}
               onChange={(e) => setPlantName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleGetSettings()}
-              placeholder="e.g. Tomato, Rose, Mint, Cactus..."
+              placeholder="e.g. Peace Lily, Snake Plant, زنبق السلام..."
               className={`flex-1 ${theme.input} border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 transition`}
             />
             <button
@@ -148,7 +149,7 @@ export default function SettingsPage() {
               disabled={loading || !plantName}
               className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs disabled:opacity-50 transition whitespace-nowrap"
             >
-              {loading ? '⏳ Asking...' : 'Ask AI 🤖'}
+              {loading ? '⏳ Asking...' : 'Auto Set'}
             </button>
           </div>
 
@@ -171,7 +172,15 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className={`text-base font-bold ${theme.text}`}>Current Settings</h2>
-                <p className="text-emerald-400 text-xs font-semibold mt-0.5">🌿 {settings.plantName}</p>
+                <p className="text-emerald-400 text-xs font-semibold mt-0.5">
+                  🌿 {settings.englishName || settings.plantName}
+                </p>
+
+                {settings.scientificName && (
+                  <p className={`text-[10px] ${theme.textMuted}`}>
+                    {settings.scientificName}
+                  </p>
+                )}
               </div>
               {saved && (
                 <div className={`${theme.savedMsg} border px-3 py-1.5 rounded-xl text-xs font-bold`}>

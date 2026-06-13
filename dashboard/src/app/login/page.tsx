@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 const VerdirraLogo = ({ size = 40 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -23,16 +23,18 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (searchParams.get('verified') === 'true') {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get('verified') === 'true') {
       setSuccess('✅ Email verified! You can now login.');
     }
-    if (searchParams.get('error') === 'expired') {
+
+    if (params.get('error') === 'expired') {
       setError('❌ Verification link expired. Please register again.');
     }
-  }, [searchParams]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
